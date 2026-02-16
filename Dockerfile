@@ -57,6 +57,7 @@ RUN apt-get update \
     pkg-config \
     sudo \
     chromium \
+    tini \
   && rm -rf /var/lib/apt/lists/*
 
 # Install Homebrew (must run as non-root user)
@@ -89,4 +90,7 @@ COPY src ./src
 
 ENV PORT=8080
 EXPOSE 8080
+
+# tini as entrypoint reaps zombie processes (Chromium leaves orphans)
+ENTRYPOINT ["tini", "--"]
 CMD ["node", "src/server.js"]
