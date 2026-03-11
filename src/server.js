@@ -232,7 +232,7 @@ async function startGateway() {
         try {
           console.log("[gateway] auto-restarting after crash");
           await startGateway();
-          await waitForGatewayReady({ timeoutMs: 60_000 });
+          await waitForGatewayReady({ timeoutMs: 20_000 });
           console.log("[gateway] auto-restart successful");
         } catch (err) {
           console.error(`[gateway] auto-restart failed: ${err}`);
@@ -248,7 +248,7 @@ async function ensureGatewayRunning() {
   if (!gatewayStarting) {
     gatewayStarting = (async () => {
       await startGateway();
-      const ready = await waitForGatewayReady({ timeoutMs: 60_000 });
+      const ready = await waitForGatewayReady({ timeoutMs: 20_000 });
       if (!ready) {
         throw new Error("Gateway did not become ready in time");
       }
