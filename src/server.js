@@ -189,21 +189,6 @@ async function startGateway() {
 
   console.log(`[gateway] ========== TOKEN SYNC COMPLETE ==========`);
 
-  // Patch config fields that the CLI doesn't expose but are required for Railway:
-  //  - dangerouslyDisableDeviceAuth: bypass Control UI device pairing (ws code 1008)
-  //  - trustedProxies: trust Railway's CGNAT proxy range so gateway sees connections as local
-  try {
-    const cfg = JSON.parse(fs.readFileSync(configPath(), "utf8"));
-    cfg.gateway = cfg.gateway ?? {};
-    cfg.gateway.controlUi = cfg.gateway.controlUi ?? {};
-    cfg.gateway.controlUi.dangerouslyDisableDeviceAuth = true;
-    cfg.gateway.trustedProxies = ["100.64.0.0/10"];
-    fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2), { encoding: "utf8", mode: 0o600 });
-    console.log("[gateway] ✓ Patched dangerouslyDisableDeviceAuth + trustedProxies into config");
-  } catch (err) {
-    console.error(`[gateway] WARNING: Failed to patch config: ${err}`);
-  }
-
   const args = [
     "gateway",
     "run",
@@ -676,19 +661,17 @@ app.post("/setup/api/run", requireSetupAuth, async (req, res) => {
           String(INTERNAL_GATEWAY_PORT),
         ]),
       );
-      // Disable Control UI device pairing requirement (fixes ws code 1008: pairing required).
-      // dangerouslyDisableDeviceAuth is not exposed via `config set`, so patch JSON directly.
-      try {
-        const cfg = JSON.parse(fs.readFileSync(configPath(), "utf8"));
-        cfg.gateway = cfg.gateway ?? {};
-        cfg.gateway.controlUi = cfg.gateway.controlUi ?? {};
-        cfg.gateway.controlUi.dangerouslyDisableDeviceAuth = true;
-        cfg.gateway.trustedProxies = ["100.64.0.0/10"];
-        fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2), { encoding: "utf8", mode: 0o600 });
-        console.log("[onboard] ✓ Patched dangerouslyDisableDeviceAuth + trustedProxies");
-      } catch (err) {
-        console.error(`[onboard] WARNING: Failed to patch config: ${err}`);
-      }
+      // Allow Control UI access without device pairing (fixes error 1008: pairing required)
+      await runCmd(
+        OPENCLAW_NODE,
+        clawArgs(["config", "set", "gateway.controlUi.allowInsecureAuth", "true"]),
+      );
+      // Trust Railway's internal reverse proxy (100.64.0.0/10 CGNAT range) so the gateway
+      // recognises connections as local and doesn't require device pairing on the Control UI WS.
+      await runCmd(
+        OPENCLAW_NODE,
+        clawArgs(["config", "set", "--json", "gateway.trustedProxies", '["100.64.0.0/10"]']),
+      );
 
       const channelsHelp = await runCmd(
         OPENCLAW_NODE,
