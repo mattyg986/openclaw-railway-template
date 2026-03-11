@@ -927,16 +927,31 @@ proxy.on("error", (err, _req, _res) => {
   console.error("[proxy]", err);
 });
 
-// Inject auth token into HTTP proxy requests
+// Headers to strip so the gateway sees a plain loopback connection (no proxy chain).
+// Without this the gateway detects X-Forwarded-For from Railway's untrusted CGNAT
+// proxy and refuses to treat the connection as local, blocking the Control UI WS.
+const STRIP_PROXY_HEADERS = [
+  "x-forwarded-for",
+  "x-forwarded-host",
+  "x-forwarded-proto",
+  "x-forwarded-port",
+  "x-real-ip",
+  "x-railway-request-id",
+  "x-railway-edge",
+  "x-request-start",
+];
+
+// Inject auth token into HTTP proxy requests and strip forwarded headers
 proxy.on("proxyReq", (proxyReq, req, res) => {
-  console.log(`[proxy] HTTP ${req.method} ${req.url} - injecting token: ${OPENCLAW_GATEWAY_TOKEN.slice(0, 16)}...`);
+  debug(`[proxy] HTTP ${req.method} ${req.url} - injecting token: ${OPENCLAW_GATEWAY_TOKEN.slice(0, 16)}...`);
   proxyReq.setHeader("Authorization", `Bearer ${OPENCLAW_GATEWAY_TOKEN}`);
+  for (const h of STRIP_PROXY_HEADERS) proxyReq.removeHeader(h);
 });
 
-// Log WebSocket upgrade proxy events (token is injected via headers option in server.on("upgrade"))
+// Inject auth token and strip forwarded headers for WebSocket upgrades
 proxy.on("proxyReqWs", (proxyReq, req, socket, options, head) => {
-  console.log(`[proxy-event] WebSocket proxyReqWs event fired for ${req.url}`);
-  console.log(`[proxy-event] Headers:`, JSON.stringify(proxyReq.getHeaders()));
+  proxyReq.setHeader("Authorization", `Bearer ${OPENCLAW_GATEWAY_TOKEN}`);
+  for (const h of STRIP_PROXY_HEADERS) proxyReq.removeHeader(h);
 });
 
 app.use(async (req, res) => {
