@@ -108,6 +108,7 @@ function isConfigured() {
 
 let gatewayProc = null;
 let gatewayStarting = null;
+let gatewayIntentionalStop = false;
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -223,6 +224,21 @@ async function startGateway() {
   gatewayProc.on("exit", (code, signal) => {
     console.error(`[gateway] exited code=${code} signal=${signal}`);
     gatewayProc = null;
+    const crashed = code !== 0 && code !== null;
+    if (!gatewayIntentionalStop && crashed && isConfigured()) {
+      const delay = 5_000;
+      console.log(`[gateway] scheduling auto-restart in ${delay}ms (crashed with code=${code})`);
+      setTimeout(async () => {
+        try {
+          console.log("[gateway] auto-restarting after crash");
+          await startGateway();
+          await waitForGatewayReady({ timeoutMs: 20_000 });
+          console.log("[gateway] auto-restart successful");
+        } catch (err) {
+          console.error(`[gateway] auto-restart failed: ${err}`);
+        }
+      }, delay);
+    }
   });
 }
 
@@ -250,12 +266,14 @@ async function restartGateway() {
   // Kill gateway process tracked by wrapper
   if (gatewayProc) {
     console.log("[gateway] Killing wrapper-managed gateway process");
+    gatewayIntentionalStop = true;
     try {
       gatewayProc.kill("SIGTERM");
     } catch {
       // ignore
     }
     gatewayProc = null;
+    gatewayIntentionalStop = false;
   }
 
   // Also kill any other gateway processes (e.g., started by onboard command)
@@ -647,6 +665,12 @@ app.post("/setup/api/run", requireSetupAuth, async (req, res) => {
       await runCmd(
         OPENCLAW_NODE,
         clawArgs(["config", "set", "gateway.controlUi.allowInsecureAuth", "true"]),
+      );
+      // Trust Railway's internal reverse proxy (100.64.0.0/10 CGNAT range) so the gateway
+      // recognises connections as local and doesn't require device pairing on the Control UI WS.
+      await runCmd(
+        OPENCLAW_NODE,
+        clawArgs(["config", "set", "--json", "gateway.trustedProxies", '["100.64.0.0/10"]']),
       );
 
       const channelsHelp = await runCmd(
